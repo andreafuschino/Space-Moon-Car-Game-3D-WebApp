@@ -1,0 +1,1032 @@
+<!doctype html>
+<html>
+<title> Space Moon Game </title>
+  <head>
+      <!--per ricaricare sempre la pagina da zero e non usare la cache-->
+      <META HTTP-EQUIV=”Pragma” CONTENT=”no-cache”>
+      <META HTTP-EQUIV=”Cache-Control” CONTENT=”no-cache”>
+	  <link rel="shortcut icon" href="#">
+
+      <style>
+      body {
+            background: #dddddd;
+        }
+        #my_Canvas {
+            margin: 10px;
+            padding: 10px;
+            background: #ffffff;
+            border: thin inset #aaaaaa;
+
+        }
+        .container {  /*to manage text on canvas and webgl */
+          position: relative;
+        }
+        #text {. /*to manage text on canvas and webgl */
+          background-color: transparent;  /* needed because we setcanvas bg color to white */
+          position: absolute;
+          left: 100px;
+          top: 10px;
+          z-index: 10;
+        }
+		
+      </style>
+   </head>
+<body>
+
+
+<div class="container"> 
+  <canvas width="1100" height="500" id="my_Canvas"></canvas> 
+  <canvas width="1100" height="550" id="text"></canvas>
+</div>
+  
+  
+  
+<!------------------------------------------------------------------------------------->
+<script  id="color-vertex-shader" type="x-shader/x-vertex">
+attribute vec3 a_position;
+
+uniform mat4 u_projection;
+uniform mat4 u_view;
+uniform mat4 u_world;
+
+void main() {
+  gl_Position = u_projection * u_view * u_world * vec4(a_position,1.0);
+}
+</script>
+
+
+<script  id="color-fragment-shader" type="x-shader/x-fragment">
+precision mediump float;
+
+uniform vec4 u_color;
+void main() {
+  gl_FragColor = u_color;
+}
+</script>
+
+
+<!----------------------------------------------------------------------------------->
+
+<script id="vertex-shader-phong" type="not-javascript">
+attribute  vec3  position;    //vertici
+attribute  vec3  normal;	 //normali
+
+uniform mat4 u_projection; 
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;	
+
+varying vec3 normalInterp;
+varying vec3 vertPos;
+
+
+void main(){
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+	//normalMat = inverse transpose della mo_matrix
+	normalInterp=vec3(normalMat*vec4(normal,0.0));
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+}
+</script>
+
+
+<script id="fragment-shader-phong" type="not-javascript">
+precision mediump float;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+void main(){
+	vec3 N = normalize(normalInterp);
+	vec3 L = normalize(lightPos-vertPos);
+
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(viewPos-vertPos);
+		float specAngle=max(dot(R,V), 0.0);
+		specular = pow(specAngle, shinessVal);
+	}
+	
+	
+	
+	gl_FragColor = vec4(Ka*ambientColor +
+						Kd*lambertian*diffuseColor +
+						Ks*specular*specularColor,1.0);
+			
+		
+}
+
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+
+<script id="vertex-shader-phong-text" type="not-javascript">
+attribute  vec3  position;    //vertici
+attribute  vec3  normal;	  //normali
+attribute  vec2  a_texcoord;  //coordinate texture
+
+uniform mat4 u_projection; 
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;	
+
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+
+
+void main(){
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+	normalInterp=vec3(normalMat*vec4(normal,0.0));
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+	
+	//passa coordinate texture al fragment
+	v_texcoord = a_texcoord;
+}
+</script>
+
+
+<script id="fragment-shader-phong-text" type="not-javascript">
+precision mediump float;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+uniform sampler2D u_texture;
+
+void main(){
+	vec3 N = normalize(normalInterp);
+	vec3 L = normalize(lightPos-vertPos);
+
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(viewPos-vertPos);
+		float specAngle=max(dot(R,V), 0.0);
+		specular = pow(specAngle, shinessVal);
+	}
+	
+	//recupera colore texture
+	vec4 texColor = texture2D(u_texture, v_texcoord);
+	
+	//colore texture moltiplicato per prima e seconda componente (ambient e diffuse)
+	gl_FragColor = vec4(texColor.rgb*(Ka*ambientColor) +
+						texColor.rgb*(Kd*lambertian*diffuseColor) +
+					    Ks*specular*specularColor,
+						texColor.a);
+				
+}
+
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script id="vertex-shader-phong-text-spotlight" type="not-javascript">
+attribute  vec3  position;    //vertici
+attribute  vec3  normal;	  //normali
+attribute  vec2  a_texcoord;
+
+uniform mat4 u_projection; 
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;	
+
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+
+
+void main(){
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+	normalInterp=vec3(normalMat*vec4(normal,0.0));
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+	
+	// Pass the texcoord to the fragment shader.
+	v_texcoord = a_texcoord;
+}
+</script>
+
+
+<script id="fragment-shader-phong-text-spotlight" type="not-javascript">
+precision mediump float;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+
+uniform vec3 ambientColor_fari;
+uniform vec3 diffuseColor_fari;
+uniform vec3 specularColor_fari;
+
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+uniform vec3 lightPos_faro_dx;
+uniform vec3 lightPos_faro_sx;
+
+uniform vec3 u_lightDirectionDx;
+uniform vec3 u_lightDirectionSx;
+uniform float u_limit;
+
+uniform sampler2D u_texture;
+
+void main(){
+
+	//light principale
+	vec3 N = normalize(normalInterp);
+	vec3 L = normalize(lightPos-vertPos);
+
+	float lambertian = max(dot(N,L), 0.0);
+	float specular = 0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(viewPos-vertPos);
+		float specAngle=max(dot(R,V), 0.0);
+		specular = pow(specAngle, shinessVal);
+	}
+	
+	vec4 texColor = texture2D(u_texture, v_texcoord);
+
+	vec4 light_principale = vec4(texColor.rgb*(Ka*ambientColor) +
+							texColor.rgb*(Kd*lambertian*diffuseColor) +
+							Ks*specular*specularColor,
+							texColor.a);
+	
+	
+	//light faro_dx
+	vec3 L1 = normalize(lightPos_faro_dx-vertPos);
+	
+	float lambertian1 = 0.0;
+	float specular1 = 0.0;
+	float dotFromDirection1 = max(dot(L1, -u_lightDirectionDx),0.0);
+
+	if (dotFromDirection1 >= u_limit){
+		lambertian1 = max(dot(N, L1),0.0);
+		if (lambertian1 > 0.0) {
+			vec3 R1 = reflect(-L1,N);
+			vec3 V1 = normalize(viewPos-vertPos);
+			float specAngle1=max(dot(R1,V1), 0.0);
+			specular1 = pow(specAngle1, shinessVal);
+		}
+	}
+
+	vec4 light_faro_dx = vec4(texColor.rgb*(Ka*ambientColor_fari) +
+								texColor.rgb*(Kd*lambertian1*diffuseColor_fari) +
+								Ks*specular1*specularColor_fari,
+								texColor.a);
+	
+
+	//light faro_sx
+	vec3 L2 = normalize(lightPos_faro_sx-vertPos);
+	
+	float lambertian2 = 0.0;
+	float specular2 = 0.0;
+	float dotFromDirection2 = max(dot(L2, -u_lightDirectionSx),0.0);
+
+	if (dotFromDirection2 >= u_limit){
+		lambertian2 = max(dot(N, L2),0.0);
+		if (lambertian2 > 0.0) {
+			vec3 R2 = reflect(-L2,N);
+			vec3 V2 = normalize(viewPos-vertPos);
+			float specAngle2=max(dot(R2,V2), 0.0);
+			specular2 = pow(specAngle2, shinessVal);
+		}
+	}
+	
+	vec4 light_faro_sx = vec4(texColor.rgb*(Ka*ambientColor_fari) +
+							texColor.rgb*(Kd*lambertian2*diffuseColor_fari) +
+							Ks*specular2*specularColor_fari,
+							texColor.a);
+	
+	
+	
+	//sommo tutte e tre le informazioni
+	gl_FragColor=light_principale+light_faro_dx+light_faro_sx;
+			
+}
+
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script id="vertex-shader-phong-normal-mapping" type="not-javascript">
+attribute  vec3  position;        //vertici
+attribute  vec3  normal;	  	  //normali
+attribute  vec3  tangent;   	  //vertici
+attribute  vec2  a_texcoord;
+
+uniform mat4 u_projection; 
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;	
+
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+varying vec3 TangentLightPos;
+varying vec3 TangentViewPos;
+varying vec3 TangentFragPos;
+
+
+void main(){
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+
+	vec3 T = normalize(mat3(normalMat) * tangent);
+    vec3 N = normalize(mat3(normalMat) * normal );
+    T = normalize(T - dot(T, N) * N);
+	//cross product T e N per trovare B -> ortogonali
+    vec3 B = cross(N, T);
+    
+	mat3 TBN=mat3(T, B, N);
+	//modo alternativo di calcolare l'inversa della TBN
+	TBN = mat3(
+    vec3(TBN[0].x, TBN[1].x, TBN[2].x),
+    vec3(TBN[0].y, TBN[1].y, TBN[2].y),
+    vec3(TBN[0].z, TBN[1].z, TBN[2].z));
+	
+	//trasformazione della altre variabili in gioco nello spazio tangente
+    TangentLightPos = TBN * lightPos;
+    TangentViewPos  = TBN * viewPos;
+    TangentFragPos  = TBN * vertPos;
+	
+	// Pass the texcoord to the fragment shader.
+	v_texcoord = a_texcoord;
+}
+</script>
+
+
+
+<script id="fragment-shader-phong-normal-mapping" type="not-javascript">
+precision mediump float;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+varying vec3 TangentLightPos;
+varying vec3 TangentViewPos;
+varying vec3 TangentFragPos;
+varying vec3 lightPos;
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+
+uniform sampler2D normalMap;
+
+void main(){
+	
+	//recupero info sulle normali dalla texture
+	vec3  N = texture2D(normalMap, v_texcoord).rgb;
+	//riporto normali nel range corretto
+	N = normalize(N * 2.0 - 1.0);
+	
+	
+	vec3 L = normalize(TangentLightPos-TangentFragPos);
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(TangentViewPos-TangentFragPos);
+		vec3 halfwayDir = normalize(L+V);  
+		specular =  pow(max(dot(N, halfwayDir), 0.0), shinessVal);
+	}
+	
+	
+	gl_FragColor = vec4((Ka*ambientColor) +
+						(Kd*lambertian*diffuseColor) +
+					    Ks*specular*specularColor,
+						1.0);
+			
+}
+
+</script>
+
+
+<!----------------------------------------------------------------------------------->
+
+<script  id="vertex-shader-skybox" type="x-shader/x-vertex">
+attribute vec4 a_position;
+varying vec4 v_position;
+void main() {
+  v_position = a_position;
+  gl_Position = a_position;
+  //z=1.0 pixel hanno max profondità 
+  gl_Position.z = 1.0;
+}
+</script>
+
+
+<script  id="fragment-shader-skybox" type="x-shader/x-fragment">
+precision mediump float;
+
+uniform samplerCube u_skybox;
+//u_viewDirectionProjectionInverse = inversa Pmatrix*Vmatrix -> backward
+uniform mat4 u_viewDirectionProjectionInverse;
+
+varying vec4 v_position;
+void main() {
+  //get the direction the camera is looking for each pixel on the quad -> give us directions to look into the cubemap
+  vec4 t = u_viewDirectionProjectionInverse * v_position;
+  //divide for w: go from 4D to 3D
+  gl_FragColor = textureCube(u_skybox, normalize(t.xyz / t.w));
+}
+
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script  id="vertex-shader-envmap" type="x-shader/x-vertex">
+attribute vec3 a_position;
+attribute vec3 a_normal;
+
+uniform mat4 u_projection;
+uniform mat4 u_view;
+uniform mat4 u_world;
+
+varying vec3 v_worldPosition;
+varying vec3 v_worldNormal;
+
+void main() {
+  v_worldPosition = (u_world * vec4(a_position,1.0)).xyz;
+  v_worldNormal = mat3(u_world) * a_normal;
+  
+  gl_Position = u_projection * u_view * u_world * vec4(a_position,1.0);
+}
+</script>
+
+<script  id="fragment-shader-envmap" type="x-shader/x-fragment">
+precision highp float;
+
+varying vec3 v_worldPosition;
+varying vec3 v_worldNormal;
+
+//skybox texture
+uniform samplerCube u_texture;
+
+//world camera position
+uniform vec3 u_worldCameraPosition;
+
+void main() {
+  vec3 worldNormal = normalize(v_worldNormal);
+  //eyeToSurfaceDir= world position of the surface - world position of the camera
+  vec3 eyeToSurfaceDir = normalize(v_worldPosition - u_worldCameraPosition);
+  vec3 direction = reflect(eyeToSurfaceDir,worldNormal);
+  //use the reflected direction to look at the cubemap to color the surface of the object
+  gl_FragColor = textureCube(u_texture, direction);
+}
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script  id="vertex-shader-phong-notexture-shadow" type="x-shader/x-vertex">
+attribute  vec3  position;    //vertici
+attribute  vec3  normal;	  //normali
+
+
+uniform mat4 u_projection;
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;
+//u_textureMatrix = cambio sistema punto di vista della luce
+uniform mat4 u_textureMatrix;
+
+
+varying vec4 v_projectedTexcoord;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+
+
+void main() {
+  vec4 vertPos4 = u_world*vec4(position, 1.0);
+  vertPos = vec3(vertPos4)/vertPos4.w;
+  normalInterp=vec3(normalMat*vec4(normal,0.0));
+  
+  gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+  
+  //punto di vista della luce
+  v_projectedTexcoord = u_textureMatrix * vertPos4;
+}
+</script>
+
+
+<script  id="fragment-shader-phong-notexture-shadow" type="x-shader/x-fragment">
+precision mediump float;
+
+// Passed in from the vertex shader.
+varying vec4 v_projectedTexcoord;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+uniform float u_bias;
+
+uniform sampler2D u_projectedTexture;
+
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+void main() {
+	//from 4D to 3D
+	vec3 projectedTexcoord = v_projectedTexcoord.xyz / v_projectedTexcoord.w;
+	//recupero profondità del pixel corrente dal punto di vista della luca + bias to limit shadow acne
+	float currentDepth = projectedTexcoord.z + u_bias;
+
+	//will draw the projected texture anywhere its texture coordinates are between 0.0 and 1.0
+	bool inRange =
+		projectedTexcoord.x >= 0.0 &&
+		projectedTexcoord.x <= 1.0 &&
+		projectedTexcoord.y >= 0.0 &&
+		projectedTexcoord.y <= 1.0;
+
+	//recupero dalla texture l'informazione di profondità
+	//the 'r' channel has the depth values
+	float projectedDepth = texture2D(u_projectedTexture, projectedTexcoord.xy).r;
+	//shadow test: se la profondità del pixel nello shadow buffer è minore della profondità del pixel corrente -> in ombra = 0.0
+	float shadowLight = (inRange && projectedDepth <= currentDepth) ? 0.0 : 1.0;
+	
+	vec3 N = normalize(normalInterp);
+	vec3 L = normalize(lightPos-vertPos);
+
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(viewPos-vertPos);
+		float specAngle=max(dot(R,V), 0.0);
+		specular = pow(specAngle, shinessVal);
+	}
+
+	//shadow information moltiplicata per le tre componenti
+	gl_FragColor = vec4((Ka*ambientColor)*shadowLight  +
+						(Kd*lambertian*diffuseColor) *shadowLight+
+							(Ks*specular*specularColor)*shadowLight,1.0);
+							
+}
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script  id="vertex-shader-phong-texture-shadow" type="x-shader/x-vertex">
+attribute  vec3  position;    //vertici
+attribute  vec3  normal;	  //normali
+attribute  vec2  a_texcoord;
+
+uniform mat4 u_projection;
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;	
+uniform mat4 u_textureMatrix;
+
+varying vec2 v_texcoord;
+varying vec4 v_projectedTexcoord;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+
+void main() {
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+	normalInterp=vec3(normalMat*vec4(normal,0.0));
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+
+	v_texcoord = a_texcoord;
+    v_projectedTexcoord = u_textureMatrix * vertPos4;
+}
+</script>
+
+
+
+<script  id="fragment-shader-phong-texture-shadow"  type="x-shader/x-fragment">
+precision mediump float;
+
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+varying vec4 v_projectedTexcoord;
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+uniform float u_bias;
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+uniform sampler2D u_texture;
+uniform sampler2D u_projectedTexture;
+
+
+
+void main() {
+	vec3 projectedTexcoord = v_projectedTexcoord.xyz / v_projectedTexcoord.w;
+	float currentDepth = projectedTexcoord.z + u_bias;
+
+	bool inRange =
+		projectedTexcoord.x >= 0.0 &&
+		projectedTexcoord.x <= 1.0 &&
+		projectedTexcoord.y >= 0.0 &&
+		projectedTexcoord.y <= 1.0;
+
+	// the 'r' channel has the depth values
+	float projectedDepth = texture2D(u_projectedTexture, projectedTexcoord.xy).r;
+	float shadowLight = (inRange && projectedDepth <= currentDepth) ? 0.0 : 1.0;
+	
+	vec3 N = normalize(normalInterp);
+	vec3 L = normalize(lightPos-vertPos);
+
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(viewPos-vertPos);
+		float specAngle=max(dot(R,V), 0.0);
+		specular = pow(specAngle, shinessVal);
+	}
+	
+
+	vec4 texColor = texture2D(u_texture, v_texcoord);
+  
+	gl_FragColor = vec4(texColor.rgb*(Ka*ambientColor)*shadowLight  +
+						texColor.rgb*(Kd*lambertian*diffuseColor)*shadowLight+
+					    Ks*specular*specularColor*shadowLight,
+						texColor.a);
+							
+}
+
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script id="vertex-shader-phong-text-spotlight-shadow" type="not-javascript">
+attribute  vec3  position;    //vertici
+attribute  vec3  normal;	  //normali
+attribute  vec2  a_texcoord;
+
+uniform mat4 u_projection; 
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;
+uniform mat4 u_textureMatrix;	
+
+varying vec4 v_projectedTexcoord;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+
+
+void main(){
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+	normalInterp=vec3(normalMat*vec4(normal,0.0));
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+	
+	// Pass the texcoord to the fragment shader.
+	v_texcoord = a_texcoord;
+    v_projectedTexcoord = u_textureMatrix * vertPos4;
+}
+</script>
+
+
+<script id="fragment-shader-phong-text-spotlight-shadow" type="not-javascript">
+precision mediump float;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+varying vec4 v_projectedTexcoord;
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+uniform int mode;
+uniform float u_bias;
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+
+uniform vec3 ambientColor_fari;
+uniform vec3 diffuseColor_fari;
+uniform vec3 specularColor_fari;
+
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+uniform vec3 lightPos_faro_dx;
+uniform vec3 lightPos_faro_sx;
+
+uniform vec3 u_lightDirectionDx;
+uniform vec3 u_lightDirectionSx;
+uniform float u_limit;
+ 
+uniform sampler2D u_texture;
+uniform sampler2D u_projectedTexture;
+
+void main(){
+
+	vec3 projectedTexcoord = v_projectedTexcoord.xyz / v_projectedTexcoord.w;
+	float currentDepth = projectedTexcoord.z + u_bias;
+
+	bool inRange =
+		projectedTexcoord.x >= 0.0 &&
+		projectedTexcoord.x <= 1.0 &&
+		projectedTexcoord.y >= 0.0 &&
+		projectedTexcoord.y <= 1.0;
+
+	// the 'r' channel has the depth values
+	float projectedDepth = texture2D(u_projectedTexture, projectedTexcoord.xy).r;
+	float shadowLight = (inRange && projectedDepth <= currentDepth) ? 0.0 : 1.0;
+
+	//light principale
+	vec3 N = normalize(normalInterp);
+	vec3 L = normalize(lightPos-vertPos);
+
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(viewPos-vertPos);
+		float specAngle=max(dot(R,V), 0.0);
+		specular = pow(specAngle, shinessVal);
+	}
+	
+	vec4 texColor = texture2D(u_texture, v_texcoord);
+
+	vec4 light_principale = vec4(texColor.rgb*(Ka*ambientColor)*shadowLight  +
+							texColor.rgb*(Kd*lambertian*diffuseColor)*shadowLight  +
+							Ks*specular*specularColor*shadowLight ,
+							texColor.a);
+	
+	
+	//light faro_dx
+	vec3 L1 = normalize(lightPos_faro_dx-vertPos);
+	
+	float lambertian1 = 0.0;
+	float specular1 = 0.0;
+	float dotFromDirection1 = max(dot(L1, -u_lightDirectionDx),0.0);
+
+	if (dotFromDirection1 >= u_limit){
+		lambertian1 = max(dot(N, L1),0.0);
+		if (lambertian1 > 0.0) {
+			vec3 R1 = reflect(-L1,N);
+			vec3 V1 = normalize(viewPos-vertPos);
+			float specAngle1=max(dot(R1,V1), 0.0);
+			specular1 = pow(specAngle1, shinessVal);
+		}
+	}
+
+
+	vec4 light_faro_dx = vec4(texColor.rgb*(Ka*ambientColor_fari)*shadowLight  +
+							texColor.rgb*(Kd*lambertian1*diffuseColor_fari)*shadowLight  +
+							Ks*specular1*specularColor_fari*shadowLight ,
+							texColor.a);
+	
+							
+	//light faro_sx
+	vec3 L2 = normalize(lightPos_faro_sx-vertPos);
+	
+	float lambertian2 = 0.0;
+	float specular2 = 0.0;
+	float dotFromDirection2 = max(dot(L2, -u_lightDirectionSx),0.0);
+
+	if (dotFromDirection2 >= u_limit){
+		lambertian2 = max(dot(N, L2),0.0);
+		if (lambertian2 > 0.0) {
+			vec3 R2 = reflect(-L2,N);
+			vec3 V2 = normalize(viewPos-vertPos);
+			float specAngle2=max(dot(R2,V2), 0.0);
+			specular2 = pow(specAngle2, shinessVal);
+		}
+	}
+	
+	vec4 light_faro_sx = vec4(texColor.rgb*(Ka*ambientColor_fari)*shadowLight  +
+							texColor.rgb*(Kd*lambertian2*diffuseColor_fari)*shadowLight  +
+							Ks*specular2*specularColor_fari*shadowLight ,
+							texColor.a);
+	
+
+	gl_FragColor=light_principale+light_faro_dx+light_faro_sx;
+			
+}
+
+</script>
+
+<!----------------------------------------------------------------------------------->
+
+<script id="vertex-shader-phong-normal-mapping-shadow" type="not-javascript">
+attribute  vec3  position;        //vertici
+attribute  vec3  normal;	  	  //normali
+attribute  vec3  tangent;   	  //vertici
+attribute  vec2  a_texcoord;
+
+uniform mat4 u_projection; 
+uniform mat4 u_view;
+uniform mat4 u_world;
+uniform mat4 normalMat;	
+uniform mat4 u_textureMatrix;
+
+uniform vec3 lightPos;
+uniform vec3 viewPos;
+
+varying vec4 v_projectedTexcoord;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+varying vec3 TangentLightPos;
+varying vec3 TangentViewPos;
+varying vec3 TangentFragPos;
+
+
+
+void main(){
+	vec4 vertPos4 = u_world*vec4(position, 1.0);
+	vertPos = vec3(vertPos4)/vertPos4.w;
+
+	gl_Position = u_projection*u_view*u_world*vec4(position, 1.0);
+
+	vec3 T = normalize(mat3(normalMat) * tangent);
+    vec3 N = normalize(mat3(normalMat) * normal );
+    T = normalize(T - dot(T, N) * N);
+    vec3 B = cross(N, T);
+    
+	mat3 TBN=mat3(T, B, N);
+	TBN = mat3(
+    vec3(TBN[0].x, TBN[1].x, TBN[2].x),
+    vec3(TBN[0].y, TBN[1].y, TBN[2].y),
+    vec3(TBN[0].z, TBN[1].z, TBN[2].z));
+	
+	
+    TangentLightPos = TBN * lightPos;
+    TangentViewPos  = TBN * viewPos;
+    TangentFragPos  = TBN * vertPos;
+	
+	// Pass the texcoord to the fragment shader.
+	v_texcoord = a_texcoord;
+	
+	v_projectedTexcoord = u_textureMatrix * vertPos4;
+}
+</script>
+
+
+
+<script id="fragment-shader-phong-normal-mapping-shadow" type="not-javascript">
+precision mediump float;
+varying vec3 normalInterp;
+varying vec3 vertPos;
+varying vec2 v_texcoord;
+varying vec3 TangentLightPos;
+varying vec3 TangentViewPos;
+varying vec3 TangentFragPos;
+varying vec3 lightPos;
+varying vec4 v_projectedTexcoord;
+
+
+//material
+uniform vec3 Ka;
+uniform vec3 Kd;
+uniform vec3 Ks;
+uniform float shinessVal;
+uniform float u_bias;
+
+
+//light
+uniform vec3 ambientColor;
+uniform vec3 diffuseColor;
+uniform vec3 specularColor;
+
+uniform sampler2D normalMap;
+uniform sampler2D u_projectedTexture;
+
+
+void main(){
+	
+	
+	vec3 projectedTexcoord = v_projectedTexcoord.xyz / v_projectedTexcoord.w;
+	float currentDepth = projectedTexcoord.z + u_bias;
+
+	bool inRange =
+		projectedTexcoord.x >= 0.0 &&
+		projectedTexcoord.x <= 1.0 &&
+		projectedTexcoord.y >= 0.0 &&
+		projectedTexcoord.y <= 1.0;
+
+	// the 'r' channel has the depth values
+	float projectedDepth = texture2D(u_projectedTexture, projectedTexcoord.xy).r;
+	float shadowLight = (inRange && projectedDepth <= currentDepth) ? 0.0 : 1.0;
+	
+	vec3  N = texture2D(normalMap, v_texcoord).rgb;
+	N = normalize(N * 2.0 - 1.0);
+	
+	
+	vec3 L = normalize(TangentLightPos-TangentFragPos);
+	float lambertian = max(dot(N,L), 0.0);
+	float specular=0.0;
+	if(lambertian > 0.0){
+		vec3 R = reflect(-L,N);
+		vec3 V = normalize(TangentViewPos-TangentFragPos);
+		//float specAngle=max(dot(R,V), 0.0);
+		//specular = pow(specAngle, shinessVal);
+		vec3 halfwayDir = normalize(L+V);  
+		specular =  pow(max(dot(N, halfwayDir), 0.0), shinessVal);
+	}
+	
+	
+	gl_FragColor = vec4((Ka*ambientColor)*shadowLight +
+						(Kd*lambertian*diffuseColor)*shadowLight +
+					    Ks*specular*specularColor*shadowLight,
+						1.0);
+										
+}
+
+</script>
+
+
+<!----------------------------------------------------------------------------------->
+<script type="text/javascript" 	src="resources/webgl-utils.js"></script>
+<script type="text/javascript" 	src="resources/m4.js"></script>
+<script type="text/javascript" 	src="resources/subdiv_normals_complete_version.js"></script>
+<script type="text/javascript"	src="resources/mesh_utils.js"></script>
+<script type="text/javascript"	src="resources/glm_light_complete_version.js"></script>
+<script type="text/javascript"	src="resources/jquery-3.5.1.js"></script>
+<script type="text/javascript" 	src="resources/anmglib.js"></script>
+
+<script src="obj_loader.js"></script>
+<script src="events.js"></script>
+<script src="utility.js"></script>
+<script src="car.js"></script>
+<script src="main.js"></script>
+
+
+
+
+</body>
+</html>  
